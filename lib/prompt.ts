@@ -11,9 +11,7 @@ Leave anything that needs a product or architecture decision unchanged and note 
 
 Finish with a short list: what you changed, why, and what is left unresolved.`
 
-const READ_ONLY_SENTENCE = 'This is a read-only review: do not modify, create or delete any file.'
-
-const REPORT_REQUIREMENTS = `Review the uncommitted changes in this workspace (visible in git status and git diff). ${READ_ONLY_SENTENCE}
+const REPORT_REQUIREMENTS = `Review the uncommitted changes in this workspace (visible in git status and git diff). This is a read-only review: do not modify, create or delete any file.
 
 Goal: tell the author what stands between these changes and a state a human can review as-is, written in a standard, readable style that would fit a mature open-source project.
 ${FOCUS}
@@ -29,61 +27,20 @@ export function buildPrompt(focus: string, readOnly: boolean): string {
   return focus === '' ? base : `${base}\n\nAdditional focus for this review: ${focus}`
 }
 
-// At most 36 KB in UTF-8, leaving room for the other codex exec arguments.
-const MAX_PROMPT_LENGTH = 12_000
-const REQUIRED_SECTIONS = [
-  ['Goal:', /^Goal:/m],
-  ['Scope:', /^Scope:/m],
-  ['Done when:', /^Done when:/m],
-] as const
-
 /**
  * Asks Claude, which knows what the changes are for, to turn the review `requirements` into the
  * prompt Codex receives. The reply is sent to Codex as it stands.
  */
-export function promptRequest(requirements: string, marker: string): string {
-  return `${marker}
-Write the prompt that Codex will receive to review the uncommitted changes in this workspace (git status, git diff). Codex cannot see this conversation, so use what you know of it and of the diff: what the changes are meant to do, where they are most likely to be wrong, and what to leave alone. Tailor the prompt to these changes: put the areas that matter here first, name concrete files and risks, and leave out a requirement only when it cannot apply to them.
+export function promptRequest(requirements: string): string {
+  return `Write the prompt that Codex will receive to review the uncommitted changes in this workspace (git status, git diff). Codex cannot see this conversation, so use what you know of it and of the diff: what the changes are meant to do, where they are most likely to be wrong, and what to leave alone. Tailor the prompt to these changes: put the areas that matter here first, name concrete files and risks, and leave out a requirement only when it cannot apply to them.
 
-The requirements below come from the person running the review. Keep each one that applies, never weakened. Keep the labels "Goal:", "Scope:" and "Done when:" at the start of their own lines, and the closing line that says what the final report contains. If the requirements forbid modifying files, keep that sentence word for word.
+The requirements below come from the person running the review. Keep each one that applies, never weakened.
 
 <requirements>
 ${requirements}
 </requirements>
 
-Write it the way the requirements are written: a goal, a scope and a completion bar, not a step-by-step recipe. Keep the reply within ${MAX_PROMPT_LENGTH} characters. Reply with only the prompt text: no preface, no commentary and no code fence around it. Do not edit files or start the review yourself: the codex-reviewer plugin sends your reply to Codex as it is.`
-}
-
-/** The prompt inside Claude's reply, or why it cannot be sent to Codex. */
-export function cleanPrompt(
-  answer: string,
-  readOnly: boolean,
-): { prompt: string } | { problem: string } {
-  if (answer.length > MAX_PROMPT_LENGTH || answer.includes('\0')) {
-    return { problem: 'the prompt Claude wrote is too long or malformed' }
-  }
-  let prompt = answer.trim()
-  const opening = /^(`{3,}|~{3,})[^`~\r\n]*\r?\n/.exec(prompt)
-  if (opening !== null) {
-    const fence = opening[1]!
-    const body = prompt.slice(opening[0].length)
-    const closing = new RegExp(`^${fence[0]}{${fence.length},}[ \t]*\\r?$`, 'm').exec(body)
-    // Only unwrap a fence whose first closing delimiter ends the entire reply.
-    if (closing !== null && closing.index + closing[0].length === body.length) {
-      prompt = body.slice(0, closing.index).trim()
-    }
-  }
-  if (prompt === '') return { problem: 'Claude wrote no prompt' }
-  const missing = REQUIRED_SECTIONS
-    .filter(([, pattern]) => !pattern.test(prompt))
-    .map(([label]) => label)
-  if (missing.length > 0) {
-    return { problem: `the prompt Claude wrote lacks ${missing.join(', ')}` }
-  }
-  if (readOnly && !prompt.includes(READ_ONLY_SENTENCE)) {
-    return { problem: 'the prompt Claude wrote does not forbid modifying files' }
-  }
-  return { prompt }
+Write it the way the requirements are written: a goal, a scope and a completion bar, not a step-by-step recipe. Reply with only the prompt text: no preface, no commentary and no code fence around it. Do not edit files or start the review yourself: the codex-reviewer plugin sends your reply to Codex as it is.`
 }
 
 export type ReviewArgs = {

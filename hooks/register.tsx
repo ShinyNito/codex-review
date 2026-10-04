@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { ReviewBand, ReviewPane } from '../components/review'
-import { buildPrompt, cleanPrompt, parseArgs, promptRequest } from '../lib/prompt'
+import { buildPrompt, parseArgs, promptRequest } from '../lib/prompt'
 import type { ReviewArgs } from '../lib/prompt'
 import { applyChanges, applyEvent, changedSince, IDLE, parseEvent, parseSnapshot } from '../lib/review'
 import type { CodexEvent, Snapshot } from '../lib/review'
@@ -12,15 +12,11 @@ import { COMMAND, FRAME_MS, PANE, PANE_TITLE } from '../lib/constants'
 const review = atom({ plugin: 'codex-reviewer', key: 'review' } as const, IDLE)
 const isBandHidden = atom({ plugin: 'codex-reviewer', key: 'isBandHidden' } as const, false)
 
-const PLANNING_TIMEOUT_MS = 5 * 60 * 1000
 const STARTED = 'Codex review started; the status band shows progress and you are notified when it finishes.'
 
 type Planning = {
   kind: 'planning'
   args: ReviewArgs
-  request: string
-  turnId?: string
-  timeout?: Timer
   submission?: Timer
 }
 
@@ -193,7 +189,6 @@ async function readReview($: EngineInterface, isActive: boolean): Promise<Review
 function finishPlanning($: EngineInterface, live: Live, asked: Planning, reason?: string) {
   if (live.active !== asked) return
   live.active = undefined
-  asked.timeout?.cancel()
   asked.submission?.cancel()
   $.ui.status(undefined)
   if (reason !== undefined) $.ui.toast(`Codex review not started: ${reason}`)
@@ -310,7 +305,7 @@ export const register: Register = (on, options) => {
       return { text: 'A Codex review is already running; reopened its pane.' }
     }
     if (live.active?.kind === 'planning') {
-      return { text: 'Claude is already writing the review prompt; wait for it or interrupt that turn.' }
+      return { text: 'Claude is already writing the review prompt; wait for its reply.' }
     }
 
     const args = parseArgs(e.args)
@@ -327,25 +322,15 @@ export const register: Register = (on, options) => {
     const asked: Planning = {
       kind: 'planning',
       args,
-      request: promptRequest(
-        buildPrompt(args.focus, args.readOnly),
-        `[codex-review-prompt:${crypto.randomUUID()}]`,
-      ),
     }
     live.active = asked
     $.ui.status('Claude is writing the review prompt')
-    asked.timeout = $.clock.after(PLANNING_TIMEOUT_MS, () => {
-      finishPlanning($, live, asked, 'timed out waiting for Claude’s prompt; run /codex-review again or use --quick')
-    })
     // The host forbids prompt.submit inside command.run; defer it with the host clock.
     asked.submission = $.clock.after(1, () => {
       if (live.active !== asked) return
-      void $.prompt.submit({ text: asked.request })
+      void $.prompt.submit({ text: promptRequest(buildPrompt(args.focus, args.readOnly)) })
         .then((result) => {
           if (result.drop !== undefined) finishPlanning($, live, asked, result.drop)
-          else if (result.text !== asked.request) {
-            finishPlanning($, live, asked, 'the prompt request was rewritten')
-          }
         })
         .catch((error) => finishPlanning($, live, asked, String(error)))
     })
@@ -354,21 +339,10 @@ export const register: Register = (on, options) => {
     }
   })
 
-  on('turn.start', ($, e, next) => {
-    if (live.active?.kind === 'planning') {
-      if (live.active.turnId === undefined && e.text === live.active.request) {
-        live.active.turnId = e.turnId
-      } else if (live.active.turnId !== e.turnId) {
-        finishPlanning($, live, live.active, 'another turn started before the prompt arrived')
-      }
-    }
-    return next(e)
-  })
-
   on('turn.complete', async ($, e, next) => {
     const asked = live.active
     const result = await next(e)
-    if (asked?.kind !== 'planning' || live.active !== asked || e.agentId !== undefined || asked.turnId !== e.turnId) {
+    if (asked?.kind !== 'planning' || live.active !== asked || e.agentId !== undefined) {
       return result
     }
     if (e.reason !== 'answer') {
@@ -377,14 +351,9 @@ export const register: Register = (on, options) => {
         : `the request for a prompt ended with ${e.reason}`)
       return result
     }
-    const reply = cleanPrompt(e.answer, asked.args.readOnly)
-    if ('problem' in reply) {
-      finishPlanning($, live, asked, `${reply.problem}; run /codex-review again`)
-      return result
-    }
     finishPlanning($, live, asked)
     try {
-      await startReview($, live, asked.args, reply.prompt)
+      await startReview($, live, asked.args, e.answer)
     } catch (error) {
       $.ui.toast(`Codex review could not start: ${String(error)}`)
     }

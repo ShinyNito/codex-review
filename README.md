@@ -14,7 +14,7 @@ By default Claude writes the prompt Codex receives:
 2. Claude, which knows what the changes are for, rewrites them for these changes: the areas that matter first, concrete files and risks named, no requirement weakened.
 3. Its reply goes to Codex as it stands, with nothing added or spliced in. You can read it in the conversation.
 
-The reply must keep the `Goal:`, `Scope:` and `Done when:` sections (and, with `--read-only`, the sentence "do not modify, create or delete any file") and stay under 12,000 characters. If it does not, or Claude is interrupted, fails, or does not answer within five minutes, nothing starts and a toast says why: run `/codex-review` again.
+While waiting, the next completed main-conversation answer goes directly to Codex. Interrupted or failed turns and rejected submissions do not start a review; a toast explains why.
 
 `--quick` skips Claude and sends the built-in prompt straight away.
 
@@ -82,7 +82,7 @@ npx --package typescript tsc --noEmit
 | --- | --- |
 | `hooks/register.tsx` | Host calls, command and turn lifecycle, the `codex exec` stream and state updates |
 | `components/review.tsx` | The status band and progress pane |
-| `lib/prompt.ts` | Review instructions, prompt validation and command arguments |
+| `lib/prompt.ts` | Review instructions, the prompt request and command arguments |
 | `lib/review.ts` | Event parsing, Git snapshots and progress reducers |
 | `lib/constants.ts` | Shared command, pane and animation constants |
 | `types/index.d.ts` | Contract for the `$.state` values the pane reads |

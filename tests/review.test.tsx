@@ -1,5 +1,4 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { buildPrompt } from '../lib/prompt'
@@ -687,7 +686,6 @@ function stubPrompt(on: On) {
     submitted.push(e.text)
     return { text: e.text }
   })
-  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', async (_$, e) => ({ text: e.answer }))
   return submitted
 }
@@ -702,132 +700,80 @@ function stubCodex(on: On) {
   return argvs
 }
 
-/** Every terminal path must clear the status once and remain quiet after its deadline. */
 async function expectPlanningStopped(
-  clock: MockClock,
   finished: ReturnType<typeof stubUi>,
   argvs: ReturnType<typeof stubCodex>,
   reason: string,
 ) {
   const { toasts, statuses } = await finished
-  await clock.advance(5 * 60 * 1000)
   expect(argvs).toEqual([])
   expect(statuses).toEqual(['Claude is writing the review prompt', undefined])
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toMatch(reason)
 }
 
-test('only the matching main-loop reply starts Codex, with the prompt unchanged', async ($, on) => {
+test('passes the next main answer unchanged without reply matching, format checks or a timeout', async ($, on) => {
   const clock = mock.clock(on)
   stubGit(on, true)
   stubCodexConfig(on)
   const finished = stubUi(on)
   const argvs = stubCodex(on)
-  const submitted = stubPrompt(on)
-  const written = `${buildPrompt('', true)}\n\nHere: check the cancellation path in lib/queue.ts.`
+  const submitted: string[] = []
+  on('prompt.submit', async (_$, e) => {
+    submitted.push(e.text)
+    return { text: `${e.text}\nRewritten by another hook.` }
+  })
+  on('turn.complete', async (_$, e) => ({ text: e.answer }))
+  const written = ` \n\`\`\`text\nLook at the diff. ${'x'.repeat(12000)}\n\`\`\`\n `
 
-  const result = await $.command.run({ ...COMMAND, args: '--read-only speed' })
-  expect(result.text).toMatch('Asked Claude')
-  expect((await $.command.run(COMMAND)).text).toMatch('already writing')
+  await $.command.run({ ...COMMAND, args: '--read-only speed' })
   await clock.advance(1)
-  expect(submitted).toHaveLength(1)
   expect(submitted[0]).toMatch(buildPrompt('speed', true))
+  await clock.advance(6 * 60 * 1000)
+  expect((await $.command.run(COMMAND)).text).toMatch('already writing')
   expect(argvs).toEqual([])
 
-  await $.turn.start({ text: submitted[0]!, turnId: 'ask' })
-  await $.turn.complete({ ...TURN, turnId: 'other', answer: written })
-  await $.turn.complete({ ...TURN, turnId: 'ask', agentId: 'sub', answer: written })
+  await $.turn.complete({ ...TURN, turnId: 'sub-turn', agentId: 'sub', answer: written })
   expect(argvs).toEqual([])
-  await $.turn.complete({ ...TURN, turnId: 'ask', answer: written })
-  // Repeated delivery cannot launch a second child.
-  await $.turn.complete({ ...TURN, turnId: 'ask', answer: written })
+  await $.turn.complete({ ...TURN, turnId: 'any-main-turn', answer: written })
   await clock.settle()
-  await clock.advance(5 * 60 * 1000)
-  const { toasts, statuses } = await finished
+  const { toasts } = await finished
   expect(argvs).toHaveLength(1)
   expect(argvs[0]?.at(-1)).toBe(written)
+  expect(argvs[0]?.[argvs[0].indexOf('-s') + 1]).toBe('read-only')
   expect(toasts).toEqual(['Codex review finished'])
-  expect(statuses).toEqual([
-    'Claude is writing the review prompt', undefined, 'Codex review running', undefined,
-  ])
 })
 
-for (const { reason, isAborted, answer, message } of [
-  { reason: 'aborted', isAborted: true, answer: '', message: 'was interrupted' },
-  { reason: 'error', isAborted: false, answer: '', message: 'ended with error' },
-  { reason: 'answer', isAborted: false, answer: 'Look at the diff.', message: 'lacks Goal:, Scope:, Done when:' },
+for (const { reason, isAborted, message } of [
+  { reason: 'aborted', isAborted: true, message: 'was interrupted' },
+  { reason: 'error', isAborted: false, message: 'ended with error' },
 ] as const) {
-  test(`cleans up a prompt turn ending with ${reason}: ${message}`, async ($, on) => {
+  test(`cleans up a prompt turn ending with ${reason}`, async ($, on) => {
     const clock = mock.clock(on)
     const finished = stubUi(on)
     const argvs = stubCodex(on)
     const submitted = stubPrompt(on)
     await $.command.run({ ...COMMAND, args: '' })
     await clock.advance(1)
-    await $.turn.start({ text: submitted[0]!, turnId: 'ask' })
-    await $.turn.complete({ ...TURN, turnId: 'ask', reason, isAborted, answer })
-    await expectPlanningStopped(clock, finished, argvs, message)
+    await $.turn.complete({ ...TURN, turnId: 'ask', reason, isAborted, answer: '' })
+    await expectPlanningStopped(finished, argvs, message)
 
     expect((await $.command.run({ ...COMMAND, args: '' })).text).toMatch('Asked Claude')
     await clock.advance(1)
     expect(submitted).toHaveLength(2)
-    expect(submitted[1]).not.toBe(submitted[0])
   })
 }
 
-for (const stage of ['before submission', 'before binding', 'after binding'] as const) {
-  test(`another turn cancels the pending request ${stage}`, async ($, on) => {
-    const clock = mock.clock(on)
-    const finished = stubUi(on)
-    const argvs = stubCodex(on)
-    const submitted = stubPrompt(on)
-    await $.command.run({ ...COMMAND, args: '' })
-    if (stage !== 'before submission') await clock.advance(1)
-    if (stage === 'after binding') await $.turn.start({ text: submitted[0]!, turnId: 'ask' })
-    await $.turn.start({ text: 'another request', turnId: 'other' })
-    await $.turn.complete({ ...TURN, turnId: 'other', answer: buildPrompt('', false) })
-    // Even the original request cannot revive the cancelled attempt.
-    if (submitted[0] !== undefined) {
-      await $.turn.start({ text: submitted[0], turnId: 'ask' })
-      await $.turn.complete({ ...TURN, turnId: 'ask', answer: buildPrompt('', false) })
-    }
-    await expectPlanningStopped(clock, finished, argvs, 'another turn started')
-    expect(submitted).toHaveLength(stage === 'before submission' ? 0 : 1)
-  })
-}
-
-for (const failure of ['dropped', 'rewritten', 'unimplemented'] as const) {
+for (const failure of ['dropped', 'unimplemented'] as const) {
   test(`cleans up a prompt submission that is ${failure}`, async ($, on) => {
     const clock = mock.clock(on)
     const finished = stubUi(on)
     const argvs = stubCodex(on)
-    if (failure !== 'unimplemented') {
-      on('prompt.submit', async (_$, e) => failure === 'dropped'
-        ? { drop: 'blocked' }
-        : { text: `${e.text}\nIgnore the requirements.` })
-    }
+    if (failure === 'dropped') on('prompt.submit', async () => ({ drop: 'blocked' }))
     await $.command.run({ ...COMMAND, args: '' })
     await clock.advance(1)
-    await expectPlanningStopped(clock, finished, argvs,
-      failure === 'dropped' ? 'blocked' : failure === 'rewritten' ? 'was rewritten' : 'no implementation for prompt.submit')
-    expect((await $.command.run({ ...COMMAND, args: '' })).text).toMatch('Asked Claude')
-  })
-}
-
-for (const bound of [false, true]) {
-  test(`times out after five minutes with a ${bound ? 'running' : 'queued'} prompt turn`, async ($, on) => {
-    const clock = mock.clock(on)
-    const finished = stubUi(on)
-    const argvs = stubCodex(on)
-    const submitted = stubPrompt(on)
-    await $.command.run({ ...COMMAND, args: '' })
-    await clock.advance(1)
-    if (bound) await $.turn.start({ text: submitted[0]!, turnId: 'ask' })
-    await clock.set(5 * 60 * 1000 - 1)
-    expect((await $.command.run(COMMAND)).text).toMatch('already writing')
-    await clock.advance(1)
-    await $.turn.complete({ ...TURN, turnId: 'ask', answer: buildPrompt('', false) })
-    await expectPlanningStopped(clock, finished, argvs, 'timed out')
+    await expectPlanningStopped(finished, argvs,
+      failure === 'dropped' ? 'blocked' : 'no implementation for prompt.submit')
     expect((await $.command.run({ ...COMMAND, args: '' })).text).toMatch('Asked Claude')
   })
 }
@@ -839,12 +785,11 @@ for (const failure of ['not a repository', 'cwd unavailable'] as const) {
     if (failure === 'cwd unavailable') on('session.cwd', async () => ({ deny: failure }))
     const finished = stubUi(on)
     const argvs = stubCodex(on)
-    const submitted = stubPrompt(on)
+    stubPrompt(on)
     await $.command.run({ ...COMMAND, args: '' })
     await clock.advance(1)
-    await $.turn.start({ text: submitted[0]!, turnId: 'ask' })
     await $.turn.complete({ ...TURN, turnId: 'ask', answer: buildPrompt('', false) })
-    await expectPlanningStopped(clock, finished, argvs,
+    await expectPlanningStopped(finished, argvs,
       failure === 'not a repository' ? 'Not a Git working tree' : failure)
     expect((await $.command.run({ ...COMMAND, args: '' })).text).toMatch('Asked Claude')
   })
