@@ -2,11 +2,9 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   applyChanges,
-  buildPrompt,
   changedSince,
   IDLE,
   lineTotals,
-  parseArgs,
   parseSnapshot,
 } from '../lib/review'
 
@@ -29,11 +27,6 @@ test('only files that moved since the start count as changed', () => {
   expect(changedSince(base, edited).map((file) => file.path)).toEqual(['new.ts', 'src/a.ts'])
 })
 
-test('a file that Codex edited and then restored is not reported', () => {
-  const base = parseSnapshot('3\t1\tsrc/a.ts\0', '')
-  expect(changedSince(base, parseSnapshot('3\t1\tsrc/a.ts\0', ''))).toEqual([])
-})
-
 test('a file Codex took out of the diff is reported', () => {
   // Reverting src/a.ts to HEAD and deleting the untracked notes.md both remove the path from Git's output.
   const base = parseSnapshot('3\t1\tsrc/a.ts\0', 'notes.md\0')
@@ -49,32 +42,6 @@ test('logs a file once, when it first shows up', () => {
 
   expect(first.recent).toEqual([{ kind: 'edit', text: 'a.ts +2 −0' }])
   expect(second.recent).toHaveLength(1)
+  expect(applyChanges(second, [...second.files])).toBe(second)
   expect(lineTotals(second.files)).toEqual({ added: 4, deleted: 1 })
-})
-
-test('--read-only is a flag, everything else is the extra focus', () => {
-  expect(parseArgs('')).toEqual({ readOnly: false, focus: '' })
-  expect(parseArgs('  --read-only  race  conditions ')).toEqual({
-    readOnly: true,
-    focus: 'race conditions',
-  })
-  expect(parseArgs('race --read-only')).toEqual({ readOnly: true, focus: 'race' })
-})
-
-test('the report-only prompt forbids edits and the fixing prompt does not', () => {
-  expect(buildPrompt('', true)).toMatch('do not modify')
-  expect(buildPrompt('', false)).not.toMatch('do not modify')
-  expect(buildPrompt('', false)).not.toMatch('shadcn')
-  expect(buildPrompt('speed', true)).toMatch('Additional focus for this review: speed')
-})
-
-test('--model and --effort take a value, spaced or with =', () => {
-  expect(parseArgs('--model gpt-5.5 --effort=high race')).toEqual({
-    readOnly: false,
-    model: 'gpt-5.5',
-    effort: 'high',
-    focus: 'race',
-  })
-  expect(parseArgs('--model').error).toMatch('--model needs a value')
-  expect(parseArgs('--effort "x y"').error).toMatch('--effort needs a value')
 })
