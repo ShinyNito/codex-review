@@ -71,6 +71,10 @@ npx --package typescript tsc --noEmit
 | `types/index.d.ts` | Contract for the `$.state` values the pane reads |
 | `tests/review.test.tsx` | Command, streaming, failure and rendering tests |
 
+## Community
+
+Shared on [LINUX DO](https://linux.do/), where feedback is welcome.
+
 ## License
 
 [MIT](LICENSE)
