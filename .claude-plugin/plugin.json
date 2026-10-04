@@ -1,7 +1,10 @@
 {
   "name": "codex-reviewer",
   "version": "0.3.0",
-  "author": { "name": "ShinyNito" },
+  "author": {
+    "name": "ShinyNito"
+  },
+  "license": "MIT",
   "description": "A mod that reviews the current changes with `codex exec`, streaming its progress into a pane.",
   "types": "./types/index.d.ts",
   "userConfig": {

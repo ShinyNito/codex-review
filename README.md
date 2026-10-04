@@ -70,3 +70,7 @@ npx --package typescript tsc --noEmit
 | `lib/review.ts` | Review instructions, event validation, Git change tracking and progress state updates |
 | `types/index.d.ts` | Contract for the `$.state` values the pane reads |
 | `tests/review.test.tsx` | Command, streaming, failure and rendering tests |
+
+## License
+
+[MIT](LICENSE)
