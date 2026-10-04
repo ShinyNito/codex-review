@@ -27,6 +27,15 @@ test('only files that moved since the start count as changed', () => {
   expect(changedSince(base, edited).map((file) => file.path)).toEqual(['new.ts', 'src/a.ts'])
 })
 
+test('a file Codex took out of the diff is reported', () => {
+  // Reverting src/a.ts to HEAD and deleting the untracked notes.md both remove the path from Git's output.
+  const base = parseSnapshot('3\t1\tsrc/a.ts\0', 'notes.md\0')
+  expect(changedSince(base, parseSnapshot('', ''))).toEqual([
+    { path: 'notes.md', added: 0, deleted: 0 },
+    { path: 'src/a.ts', added: 0, deleted: 0 },
+  ])
+})
+
 test('logs a file once, when it first shows up', () => {
   const first = applyChanges(IDLE, [{ path: 'a.ts', added: 2, deleted: 0 }])
   const second = applyChanges(first, [{ path: 'a.ts', added: 4, deleted: 1 }])
