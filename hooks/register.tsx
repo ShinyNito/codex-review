@@ -402,7 +402,8 @@ export const register: Register = (on, options) => {
             <Text dimColor>Codex</Text>
           </Box>
           {hasGauge && (
-            <Box>
+            // One Text with inline runs: sibling Texts inside a Box stack as rows.
+            <Text>
               {isRunning ? (
                 <>
                   <Text dimColor>{'▱'.repeat(before)}</Text>
@@ -412,7 +413,7 @@ export const register: Register = (on, options) => {
               ) : (
                 <Text color={look.color}>{'▰'.repeat(GAUGE_CELLS)}</Text>
               )}
-            </Box>
+            </Text>
           )}
           <Text bold color={look.color}>
             {status}
@@ -486,13 +487,13 @@ export const register: Register = (on, options) => {
             <Text dimColor>{formatElapsed(state.now - state.startedAt)}</Text>
           </Box>
           {isRunning ? (
-            <Box>
+            <Text>
               <Text dimColor>{BAR_CELL.repeat(before)}</Text>
               <Text bold color={look.color}>
                 {BAR_CELL.repeat(head)}
               </Text>
               <Text dimColor>{BAR_CELL.repeat(after)}</Text>
-            </Box>
+            </Text>
           ) : (
             <Text color={look.color}>{BAR_CELL.repeat(columns)}</Text>
           )}
