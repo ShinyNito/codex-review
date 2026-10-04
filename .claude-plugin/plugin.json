@@ -1,0 +1,16 @@
+{
+  "name": "codex-reviewer",
+  "version": "0.3.0",
+  "author": { "name": "ShinyNito" },
+  "description": "A mod that reviews the current changes with `codex exec`, streaming its progress into a pane.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Codex model",
+      "description": "Passed to `codex exec -m`. Leave empty to use the model from ~/.codex/config.toml.",
+      "default": "",
+      "required": false
+    }
+  }
+}

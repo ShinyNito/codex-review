@@ -1,0 +1,12 @@
+{
+  "name": "codex-review",
+  "description": "Review and fix workspace changes with Codex from Claude Code.",
+  "owner": { "name": "ShinyNito" },
+  "plugins": [
+    {
+      "name": "codex-reviewer",
+      "source": "./",
+      "description": "Review the current changes with `codex exec`, streaming progress into a pane."
+    }
+  ]
+}
