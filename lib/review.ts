@@ -31,11 +31,43 @@ export function buildPrompt(focus: string, readOnly: boolean): string {
   return focus === '' ? base : `${base}\n\nAdditional focus for this review: ${focus}`
 }
 
-/** Splits the command's arguments into the report-only flag and the extra focus. */
-export function parseArgs(args: string): { readOnly: boolean; focus: string } {
+export type ReviewArgs = {
+  readOnly: boolean
+  /** From `--model`, for this run only. */
+  model?: string
+  /** From `--effort`, for this run only. */
+  effort?: string
+  focus: string
+  /** Set when a flag is malformed; the run must not start. */
+  error?: string
+}
+
+const VALUE = /^[\w.:/-]+$/
+
+/** Splits the command's arguments into its flags and the extra focus. */
+export function parseArgs(args: string): ReviewArgs {
   const words = args.trim().split(/\s+/).filter((word) => word !== '')
-  const readOnly = words.includes('--read-only')
-  return { readOnly, focus: words.filter((word) => word !== '--read-only').join(' ') }
+  const result: ReviewArgs = { readOnly: false, focus: '' }
+  const focus: string[] = []
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!
+    const [flag, inline] = word.startsWith('--') ? word.split(/=(.*)/s) : [word]
+    if (flag === '--read-only') {
+      result.readOnly = true
+    } else if (flag === '--model' || flag === '--effort') {
+      const value = inline ?? words[++i]
+      if (value === undefined || !VALUE.test(value)) {
+        result.error = `${flag} needs a value, for example ${flag} ${flag === '--model' ? 'gpt-5.5' : 'high'}`
+        return result
+      }
+      if (flag === '--model') result.model = value
+      else result.effort = value
+    } else {
+      focus.push(word)
+    }
+  }
+  result.focus = focus.join(' ')
+  return result
 }
 
 export const IDLE: ReviewState = {

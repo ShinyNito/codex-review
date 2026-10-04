@@ -58,3 +58,14 @@ test('the report-only prompt forbids edits and the fixing prompt does not', () =
   expect(buildPrompt('', false)).not.toMatch('shadcn')
   expect(buildPrompt('speed', true)).toMatch('Additional focus for this review: speed')
 })
+
+test('--model and --effort take a value, spaced or with =', () => {
+  expect(parseArgs('--model gpt-5.5 --effort=high race')).toEqual({
+    readOnly: false,
+    model: 'gpt-5.5',
+    effort: 'high',
+    focus: 'race',
+  })
+  expect(parseArgs('--model').error).toMatch('--model needs a value')
+  expect(parseArgs('--effort "x y"').error).toMatch('--effort needs a value')
+})

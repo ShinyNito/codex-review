@@ -5,10 +5,12 @@ A Claude Code mod that reviews the current changes with `codex exec` and shows l
 ## Usage
 
 ```
-/codex-review [--read-only] [extra focus]
+/codex-review [--read-only] [--model <name>] [--effort <level>] [extra focus]
 ```
 
 `--read-only` runs Codex in the `read-only` sandbox with a prompt that only reports findings (file, line, why, the fix it would make) and a merge verdict, so nothing in the working tree changes.
+
+`--model` and `--effort` switch the model and the reasoning effort for this run only (`/codex-review --model gpt-5.5 --effort high`). Without them the `model` option and then `~/.codex/config.toml` apply. Both accept `--flag value` or `--flag=value`.
 
 - The pane does not open by itself. A band above the prompt carries the review: a sweeping gauge, status, elapsed time, commands and files changed (with `+added −deleted` lines), the model with its reasoning effort, and, while it runs, the command Codex is executing right now. Its keys: `o` opens the full pane (running or finished), `c` cancels a running review, `x` hides the band after it ends. On a narrow terminal the gauge and then the model drop out first. Running `/codex-review` during a review also opens the pane.
 - Files changed are read from Git, not from Codex's own report: the mod snapshots `git diff HEAD --numstat` and the untracked files at the start, compares again each time Codex finishes a step and at the end, and counts the files that differ.

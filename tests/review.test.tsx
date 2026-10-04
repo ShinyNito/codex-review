@@ -88,6 +88,49 @@ function stubUi(on: On, opened: string[] = []): Promise<{ toasts: string[] }> {
   })
 }
 
+test('--model and --effort apply to one run and show in the band', async ($, on) => {
+  mock.clock(on)
+  stubGit(on, true)
+  stubCodexConfig(on)
+  const finished = stubUi(on, [])
+  const argvs: (readonly string[])[] = []
+  on('process.spawn', async function* (_$, e) {
+    argvs.push(e.argv)
+    yield { stream: 'stdout', text: events.map((event) => JSON.stringify(event)).join('\n') }
+    return { value: { code: 0, signal: null } }
+  })
+  const submitted = new Promise<string>((resolve) => {
+    on('prompt.submit', async (_$, e) => {
+      resolve(e.text)
+      return { text: e.text }
+    })
+  })
+
+  await $.command.run({ ...COMMAND, args: '--model gpt-5.5 --effort high speed' })
+  await submitted
+  await finished
+
+  const argv = argvs[0] ?? []
+  expect(argv[argv.indexOf('-m') + 1]).toBe('gpt-5.5')
+  expect(argv[argv.indexOf('-c') + 1]).toBe('model_reasoning_effort="high"')
+  expect(argv.at(-1)).toMatch('speed')
+  expect(argv.at(-1)).not.toMatch('--model')
+})
+
+test('a flag without a value starts nothing', async ($, on) => {
+  stubGit(on, true)
+  const spawned: string[] = []
+  on('process.spawn', async function* (_$, e) {
+    spawned.push(...e.argv)
+    return { value: { code: 0, signal: null } }
+  })
+
+  const result = await $.command.run({ ...COMMAND, args: '--model' })
+
+  expect(result.text).toMatch('--model needs a value')
+  expect(spawned).toEqual([])
+})
+
 test('--read-only runs Codex in the read-only sandbox', async ($, on) => {
   mock.clock(on)
   stubGit(on, true)

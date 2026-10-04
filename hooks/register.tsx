@@ -117,8 +117,7 @@ async function runReview(
   signal: AbortSignal,
   cwd: string,
   focus: string,
-  model: string,
-  readOnly: boolean,
+  { model, effort, readOnly }: { model: string; effort?: string; readOnly: boolean },
 ): Promise<string | undefined> {
   if (signal.aborted) return
   // Which files the review changed comes from Git, not from Codex's own account of its edits.
@@ -131,6 +130,7 @@ async function runReview(
       '--ephemeral',
       '--skip-git-repo-check',
       ...(model === '' ? [] : ['-m', model]),
+      ...(effort === undefined ? [] : ['-c', `model_reasoning_effort="${effort}"`]),
       '-s',
       readOnly ? 'read-only' : 'workspace-write',
       '-C',
@@ -234,7 +234,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: COMMAND,
       description:
-        'Review the current changes with `codex exec` (optional: --read-only to only report, extra focus)',
+        'Review the current changes with `codex exec` (optional: --read-only, --model <name>, --effort <level>, extra focus)',
     })
     return next(e)
   })
@@ -244,6 +244,12 @@ export const register: Register = (on, options) => {
       await $.ui.open({ id: PANE, title: PANE_TITLE })
       return { text: 'A Codex review is already running; reopened its pane.' }
     }
+
+    const args = parseArgs(e.args)
+    if (args.error !== undefined) return { text: args.error }
+    const { focus, readOnly } = args
+    // `--model` and `--effort` apply to this run only; the option is the standing default.
+    const model = args.model ?? modelOverride
 
     // Claim the run before the first await so concurrent commands cannot start two children.
     const run = new AbortController()
@@ -264,14 +270,13 @@ export const register: Register = (on, options) => {
 
       const defaults = await readCodexDefaults($)
       const now = await $.clock.now()
-      const { focus, readOnly } = parseArgs(e.args)
       await update($, isBandHidden, () => false)
       await update($, review, (): ReviewState => ({
         ...IDLE,
         phase: 'running',
         focus,
-        model: modelOverride || defaults.model,
-        reasoningEffort: defaults.reasoningEffort,
+        model: model || defaults.model,
+        reasoningEffort: args.effort ?? defaults.reasoningEffort,
         startedAt: now,
         now,
       }))
@@ -289,7 +294,11 @@ export const register: Register = (on, options) => {
 
       void (async () => {
         try {
-          const report = await runReview($, run.signal, cwd, focus, modelOverride, readOnly)
+          const report = await runReview($, run.signal, cwd, focus, {
+            model,
+            effort: args.effort,
+            readOnly,
+          })
           tick?.cancel()
           const now = await $.clock.now()
           await update($, review, (state): ReviewState => ({
