@@ -203,8 +203,7 @@ test('streams codex exec and hands the final report back', async ($, on) => {
     expect(await ui.find({ type: 'Text', text: /Finished/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /git diff/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'gpt-test' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '1' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '2' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '1 commands 0 files edited' })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -304,6 +303,7 @@ test('the band above the prompt reopens the pane and can be dismissed', async ($
   })
   expect(await ui.find({ type: 'Text', text: /Finished/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'gpt-test · high' })).toBeDefined()
   await ui.press({ key: 'open' })
   expect(opened).toEqual(['codex-reviewer'])
 

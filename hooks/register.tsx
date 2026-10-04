@@ -27,8 +27,6 @@ const DOT_FRAMES = 4
 // The band shares its row layout with the plugins drawn above it: a label column, then 2-cell gaps.
 const BAND_LABEL_COLUMNS = 6
 const BAND_GAP = 2
-const GAUGE_CELLS = 10
-const GAUGE_SWEEP = 3
 const PANE_LABEL_COLUMNS = 6
 const BAR_CELL = '━'
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -56,13 +54,9 @@ const ACTIVITY_LOOK: Record<ActivityKind, { icon: string; color: string }> = {
 }
 
 /** Splits a bar of `columns` cells into the dim run before, the bright sweep, and the dim run after. */
-const sweepSegments = (
-  frame: number,
-  columns: number,
-  width: number = SWEEP_WIDTH,
-): [number, number, number] => {
-  const start = (frame % (columns + width)) - width
-  const head = Math.max(0, Math.min(columns, start + width) - Math.max(0, start))
+const sweepSegments = (frame: number, columns: number): [number, number, number] => {
+  const start = (frame % (columns + SWEEP_WIDTH)) - SWEEP_WIDTH
+  const head = Math.max(0, Math.min(columns, start + SWEEP_WIDTH) - Math.max(0, start))
   const before = Math.max(0, Math.min(columns, start))
   return [before, head, columns - before - head]
 }
@@ -221,7 +215,9 @@ async function runReview(
 /** The review as drawn. State outlives a hot reload but the Codex process does not, so a
  * review that reads "running" with no live run in this module was cut off by the reload. */
 async function readReview($: EngineInterface, hasRun: boolean): Promise<ReviewState> {
-  const state = await read($, review)
+  const stored = await read($, review)
+  // State saved by an older version kept `files` as a count; start that list over.
+  const state = Array.isArray(stored.files) ? stored : { ...stored, files: [] }
   if (state.phase !== 'running' || hasRun) return state
   return { ...state, phase: 'cancelled', detail: 'Interrupted: the plugin was reloaded.' }
 }
@@ -383,13 +379,8 @@ export const register: Register = (on, options) => {
           : `${state.model} · ${state.reasoningEffort}`
     const actions = isRunning ? ['o: Open', 'c: Cancel'] : ['o: Open', 'x: Hide']
 
-    // What gives way first on a narrow terminal: the gauge, then the model.
     const room = (e.props.bodyColumns ?? FALLBACK_COLUMNS) - BAND_LABEL_COLUMNS - BAND_GAP
-    const base = [status, elapsed, counts, ...actions]
-    const hasGauge = fits([...base, ' '.repeat(GAUGE_CELLS)], room)
-    const hasModel =
-      model !== '' && fits([...base, ...(hasGauge ? [' '.repeat(GAUGE_CELLS)] : []), model], room)
-    const [before, head, after] = sweepSegments(frame, GAUGE_CELLS, GAUGE_SWEEP)
+    const hasModel = model !== '' && fits([status, elapsed, counts, ...actions, model], room)
 
     const current = isRunning ? state.recent.at(-1) : undefined
     // Stack above whatever another plugin or the engine draws here, rather than replace it.
@@ -401,20 +392,6 @@ export const register: Register = (on, options) => {
           <Box width={BAND_LABEL_COLUMNS}>
             <Text dimColor>Codex</Text>
           </Box>
-          {hasGauge && (
-            // One Text with inline runs: sibling Texts inside a Box stack as rows.
-            <Text>
-              {isRunning ? (
-                <>
-                  <Text dimColor>{'▱'.repeat(before)}</Text>
-                  <Text color={look.color}>{'▰'.repeat(head)}</Text>
-                  <Text dimColor>{'▱'.repeat(after)}</Text>
-                </>
-              ) : (
-                <Text color={look.color}>{'▰'.repeat(GAUGE_CELLS)}</Text>
-              )}
-            </Text>
-          )}
           <Text bold color={look.color}>
             {status}
           </Text>
@@ -487,13 +464,13 @@ export const register: Register = (on, options) => {
             <Text dimColor>{formatElapsed(state.now - state.startedAt)}</Text>
           </Box>
           {isRunning ? (
-            <Text>
+            <Box flexDirection="row">
               <Text dimColor>{BAR_CELL.repeat(before)}</Text>
               <Text bold color={look.color}>
                 {BAR_CELL.repeat(head)}
               </Text>
               <Text dimColor>{BAR_CELL.repeat(after)}</Text>
-            </Text>
+            </Box>
           ) : (
             <Text color={look.color}>{BAR_CELL.repeat(columns)}</Text>
           )}
