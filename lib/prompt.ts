@@ -1,25 +1,29 @@
 const FOCUS = `Focus: start with performance; remove duplicated validation, redundant state and duplicated tests; use modern idioms and do not hand-write what an imported package already provides; remove code that only forwards to something else; follow the conventions and layout of this project and of well-known open-source projects of the same kind.`
 
+const REVIEW_STANDARD = `Review the whole diff independently; treat supplied context and focus as leads, not conclusions or limits. Ground findings in inspected code or verification results, and clearly distinguish hypotheses from confirmed problems.`
+
 const FIX_REQUIREMENTS = `Review and fix the uncommitted changes in this workspace (visible in git status and git diff).
 
 Goal: bring these changes to a state a human can review as-is, written in a standard, readable style that would fit a mature open-source project.
 ${FOCUS}
+${REVIEW_STANDARD}
 
 Scope: concentrate on these changes. Read surrounding code as needed to judge them, but only modify what relates to the changes.
-Done when: the problems you found are fixed directly, and the project's existing checks (tests, lint, type check) pass with no regressions. You may edit related files, run those checks and fix failures without asking first.
+Done when: supported problems are fixed and verified with the project's existing checks appropriate to the changes and their risks. You may edit related files, run those checks and fix failures caused by these changes without asking first. Report unrelated or blocked failures; broaden or repeat verification only when new changes, failures or unresolved concerns warrant it.
 Leave anything that needs a product or architecture decision unchanged and note it in the report.
 
-Finish with a short list: what you changed, why, and what is left unresolved.`
+Finish with a short list: what you changed, why, what you actually verified and any limits, and what is left unresolved.`
 
 const REPORT_REQUIREMENTS = `Review the uncommitted changes in this workspace (visible in git status and git diff). This is a read-only review: do not modify, create or delete any file.
 
 Goal: tell the author what stands between these changes and a state a human can review as-is, written in a standard, readable style that would fit a mature open-source project.
 ${FOCUS}
+${REVIEW_STANDARD}
 
-Scope: concentrate on these changes. Read surrounding code as needed to judge them, and run the project's existing checks (tests, lint, type check) if they do not write to the workspace.
+Scope: concentrate on these changes. Read surrounding code as needed to judge them, and use the project's existing checks appropriate to the changes and their risks only if they do not write to the workspace. Broaden or repeat verification only when failures or unresolved concerns warrant it.
 Done when: every problem you found is listed with its file and line, why it matters and the fix you would make, most important first.
 
-Finish with that list, then a one-line verdict: ready to merge, or what blocks it.`
+Finish with that list, what you actually verified and any limits, then a one-line verdict: ready to merge, or what blocks it.`
 
 /** The review instructions: fixing by default, report-only when `readOnly`; `focus` is appended. */
 export function buildPrompt(focus: string, readOnly: boolean): string {
@@ -32,7 +36,7 @@ export function buildPrompt(focus: string, readOnly: boolean): string {
  * prompt Codex receives. The reply is sent to Codex as it stands.
  */
 export function promptRequest(requirements: string): string {
-  return `Write the prompt that Codex will receive to review the uncommitted changes in this workspace (git status, git diff). Codex cannot see this conversation, so use what you know of it and of the diff: what the changes are meant to do, where they are most likely to be wrong, and what to leave alone. Tailor the prompt to these changes: put the areas that matter here first, name concrete files and risks, and leave out a requirement only when it cannot apply to them.
+  return `Write the prompt that Codex will receive to review the uncommitted changes in this workspace (git status, git diff). Codex cannot see this conversation, so include the relevant context you have: the intended behavior, constraints and what to leave alone. Keep that background compact, distinguish known facts from hypotheses, and present suspected risks as leads for Codex to verify. Tailor the prompt to these changes: put the areas that matter here first, name concrete files and risks only when supported by the available context, and leave out a requirement only when it cannot apply to them.
 
 The requirements below come from the person running the review. Keep each one that applies, never weakened.
 
