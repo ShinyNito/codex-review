@@ -168,13 +168,19 @@ export function parseSnapshot(numstat: string, untracked: string): Snapshot {
   return files
 }
 
-/** The files that differ from `base`: new paths, or paths whose line counts moved. */
+/**
+ * The files that differ from `base`: new paths, paths whose line counts moved, and paths that
+ * left Git's output (a change reverted to HEAD, or an untracked file deleted), which count as 0/0.
+ */
 export function changedSince(base: Snapshot, current: Snapshot): ChangedFile[] {
   const changed: ChangedFile[] = []
   for (const [path, { added, deleted }] of current) {
     const before = base.get(path)
     if (before?.added === added && before.deleted === deleted) continue
     changed.push({ path, added, deleted })
+  }
+  for (const path of base.keys()) {
+    if (!current.has(path)) changed.push({ path, added: 0, deleted: 0 })
   }
   return changed.sort((a, b) => a.path.localeCompare(b.path))
 }
