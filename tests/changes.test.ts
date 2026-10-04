@@ -1,6 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
-import { applyChanges, changedSince, IDLE, lineTotals, parseSnapshot } from '../lib/review'
+import {
+  applyChanges,
+  buildPrompt,
+  changedSince,
+  IDLE,
+  lineTotals,
+  parseArgs,
+  parseSnapshot,
+} from '../lib/review'
 
 test('reads numstat and untracked output, binary files counting as 0/0', () => {
   const snapshot = parseSnapshot('3\t1\tsrc/a.ts\0-\t-\tlogo.png\0', 'notes.md\0')
@@ -33,4 +41,20 @@ test('logs a file once, when it first shows up', () => {
   expect(first.recent).toEqual([{ kind: 'edit', text: 'a.ts +2 −0' }])
   expect(second.recent).toHaveLength(1)
   expect(lineTotals(second.files)).toEqual({ added: 4, deleted: 1 })
+})
+
+test('--read-only is a flag, everything else is the extra focus', () => {
+  expect(parseArgs('')).toEqual({ readOnly: false, focus: '' })
+  expect(parseArgs('  --read-only  race  conditions ')).toEqual({
+    readOnly: true,
+    focus: 'race conditions',
+  })
+  expect(parseArgs('race --read-only')).toEqual({ readOnly: true, focus: 'race' })
+})
+
+test('the report-only prompt forbids edits and the fixing prompt does not', () => {
+  expect(buildPrompt('', true)).toMatch('do not modify')
+  expect(buildPrompt('', false)).not.toMatch('do not modify')
+  expect(buildPrompt('', false)).not.toMatch('shadcn')
+  expect(buildPrompt('speed', true)).toMatch('Additional focus for this review: speed')
 })

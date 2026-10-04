@@ -88,6 +88,35 @@ function stubUi(on: On, opened: string[] = []): Promise<{ toasts: string[] }> {
   })
 }
 
+test('--read-only runs Codex in the read-only sandbox', async ($, on) => {
+  mock.clock(on)
+  stubGit(on, true)
+  stubCodexConfig(on)
+  const finished = stubUi(on, [])
+  const argvs: (readonly string[])[] = []
+  on('process.spawn', async function* (_$, e) {
+    argvs.push(e.argv)
+    yield { stream: 'stdout', text: events.map((event) => JSON.stringify(event)).join('\n') }
+    return { value: { code: 0, signal: null } }
+  })
+  const submitted = new Promise<string>((resolve) => {
+    on('prompt.submit', async (_$, e) => {
+      resolve(e.text)
+      return { text: e.text }
+    })
+  })
+
+  await $.command.run({ ...COMMAND, args: '--read-only speed' })
+  const text = await submitted
+  await finished
+
+  const argv = argvs[0] ?? []
+  expect(argv[argv.indexOf('-s') + 1]).toBe('read-only')
+  expect(argv.at(-1)).toMatch('do not modify')
+  expect(argv.at(-1)).toMatch('speed')
+  expect(text).toMatch('read-only review')
+})
+
 test('streams codex exec and hands the final report back', async ($, on) => {
   mock.clock(on)
   stubGit(on, true)

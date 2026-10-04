@@ -9,7 +9,8 @@ import {
   lineTotals,
   parseEvent,
   parseSnapshot,
-  REVIEW_REQUIREMENTS,
+  buildPrompt,
+  parseArgs,
 } from '../lib/review'
 import type { CodexEvent, Snapshot } from '../lib/review'
 
@@ -117,6 +118,7 @@ async function runReview(
   cwd: string,
   focus: string,
   model: string,
+  readOnly: boolean,
 ): Promise<string | undefined> {
   if (signal.aborted) return
   // Which files the review changed comes from Git, not from Codex's own account of its edits.
@@ -130,12 +132,10 @@ async function runReview(
       '--skip-git-repo-check',
       ...(model === '' ? [] : ['-m', model]),
       '-s',
-      'workspace-write',
+      readOnly ? 'read-only' : 'workspace-write',
       '-C',
       cwd,
-      focus === ''
-        ? REVIEW_REQUIREMENTS
-        : `${REVIEW_REQUIREMENTS}\n\nAdditional focus for this review: ${focus}`,
+      buildPrompt(focus, readOnly),
     ],
   })
   let cancel = () => {}
@@ -233,7 +233,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'Review the current changes with `codex exec` (optional: extra focus)',
+      description:
+        'Review the current changes with `codex exec` (optional: --read-only to only report, extra focus)',
     })
     return next(e)
   })
@@ -263,7 +264,7 @@ export const register: Register = (on, options) => {
 
       const defaults = await readCodexDefaults($)
       const now = await $.clock.now()
-      const focus = e.args.trim()
+      const { focus, readOnly } = parseArgs(e.args)
       await update($, isBandHidden, () => false)
       await update($, review, (): ReviewState => ({
         ...IDLE,
@@ -288,7 +289,7 @@ export const register: Register = (on, options) => {
 
       void (async () => {
         try {
-          const report = await runReview($, run.signal, cwd, focus, modelOverride)
+          const report = await runReview($, run.signal, cwd, focus, modelOverride, readOnly)
           tick?.cancel()
           const now = await $.clock.now()
           await update($, review, (state): ReviewState => ({
@@ -301,7 +302,9 @@ export const register: Register = (on, options) => {
           $.ui.toast('Codex review finished')
           try {
             await $.prompt.submit({
-              text: `Codex finished reviewing and fixing the current changes. Its final report:\n\n${report}\n\nSummarize what Codex changed and flag anything that still needs a decision.`,
+              text: readOnly
+                ? `Codex finished a read-only review of the current changes. Its report:\n\n${report}\n\nSummarize the findings, most important first, and say which ones you would act on.`
+                : `Codex finished reviewing and fixing the current changes. Its final report:\n\n${report}\n\nSummarize what Codex changed and flag anything that still needs a decision.`,
             })
           } catch (error) {
             await update($, review, (state) => ({

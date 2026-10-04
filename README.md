@@ -5,13 +5,15 @@ A Claude Code mod that reviews the current changes with `codex exec` and shows l
 ## Usage
 
 ```
-/codex-review [extra focus]
+/codex-review [--read-only] [extra focus]
 ```
+
+`--read-only` runs Codex in the `read-only` sandbox with a prompt that only reports findings (file, line, why, the fix it would make) and a merge verdict, so nothing in the working tree changes.
 
 - The pane does not open by itself. A band above the prompt carries the review: a sweeping gauge, status, elapsed time, commands and files changed (with `+added −deleted` lines), the model with its reasoning effort, and, while it runs, the command Codex is executing right now. Its keys: `o` opens the full pane (running or finished), `c` cancels a running review, `x` hides the band after it ends. On a narrow terminal the gauge and then the model drop out first. Running `/codex-review` during a review also opens the pane.
 - Files changed are read from Git, not from Codex's own report: the mod snapshots `git diff HEAD --numstat` and the untracked files at the start, compares again each time Codex finishes a step and at the end, and counts the files that differ.
-- Runs `codex exec --json --ephemeral -s workspace-write` in the session's working directory, which must be a Git repository.
-- Sends a built-in review prompt and lets Codex fix what it finds. The prompt states the goal, the focus areas (performance first, no duplicate checks or state, no hand-written forwarding or reimplemented library features, open-source style), the scope, and a completion bar (fixed and verified with the project's own checks) instead of a step-by-step recipe, following OpenAI's [GPT-6 Astra prompting guidance](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra). Anything after the command is appended as extra focus.
+- Runs `codex exec --json --ephemeral -s workspace-write` (`-s read-only` with `--read-only`) in the session's working directory, which must be a Git repository.
+- Sends a built-in review prompt and lets Codex fix what it finds (unless `--read-only`). The prompt states the goal, the focus areas (performance first, no duplicate checks or state, no hand-written forwarding or reimplemented library features, the conventions of the project and of well-known open-source projects like it), the scope, and a completion bar (fixed and verified with the project's own checks) instead of a step-by-step recipe, following OpenAI's [GPT-6 Astra prompting guidance](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra). Anything after the command is appended as extra focus.
 - The pane adds the detail: a model, focus and work ledger and the last few Codex actions. Cancel kills the Codex process.
 - When Codex exits there is nothing to poll: a toast appears and its final report is handed back to Claude to summarize.
 
