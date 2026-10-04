@@ -6,7 +6,7 @@
     {
       "name": "codex-reviewer",
       "source": "./",
-      "description": "Review the current changes with `codex exec`, streaming progress into a pane."
+      "description": "Review the current changes with `codex exec`, streaming progress into a status band above the prompt."
     }
   ]
 }

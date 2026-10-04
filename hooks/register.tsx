@@ -1,10 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import { applyEvent, IDLE, parseEvent, REVIEW_REQUIREMENTS } from '../lib/review'
-import type { CodexEvent } from '../lib/review'
+import {
+  applyChanges,
+  applyEvent,
+  changedSince,
+  IDLE,
+  lineTotals,
+  parseEvent,
+  parseSnapshot,
+  REVIEW_REQUIREMENTS,
+} from '../lib/review'
+import type { CodexEvent, Snapshot } from '../lib/review'
 
-import type { ActivityKind, ReviewState } from '../types'
+import type { ActivityKind, ChangedFile, ReviewState } from '../types'
 
 const PANE = 'codex-reviewer'
 const COMMAND = 'codex-review'
@@ -68,6 +77,11 @@ const formatElapsed = (ms: number): string => {
   return minutes > 0 ? `${minutes}m${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`
 }
 
+const filesSummary = (files: readonly ChangedFile[]): string => {
+  const { added, deleted } = lineTotals(files)
+  return files.length === 0 ? '0 files' : `${files.length} files +${added} −${deleted}`
+}
+
 /** Whether `parts` fit `room` cells side by side, a gap between each. */
 const fits = (parts: readonly string[], room: number): boolean =>
   parts.reduce((total, part) => total + part.length, 0) + BAND_GAP * (parts.length - 1) <= room
@@ -86,6 +100,16 @@ async function readCodexDefaults($: EngineInterface) {
   }
 }
 
+/** Git's view of the working tree: what differs from HEAD, plus untracked files. */
+async function readSnapshot($: EngineInterface, cwd: string): Promise<Snapshot> {
+  const [tracked, untracked] = await Promise.all([
+    $.process.run(['git', 'diff', 'HEAD', '--numstat', '-z', '--no-renames'], { cwd }),
+    $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd }),
+  ])
+  // A repository with no commit has no HEAD to diff against; everything is untracked then.
+  return parseSnapshot(tracked.exitCode === 0 ? tracked.stdout : '', untracked.stdout)
+}
+
 /** Reads the stream to completion, or closes it to kill the child on cancellation. */
 async function runReview(
   $: EngineInterface,
@@ -95,6 +119,8 @@ async function runReview(
   model: string,
 ): Promise<string | undefined> {
   if (signal.aborted) return
+  // Which files the review changed comes from Git, not from Codex's own account of its edits.
+  const base = await readSnapshot($, cwd).catch(() => undefined)
   const codex = $.process.spawn({
     argv: [
       'codex',
@@ -122,6 +148,25 @@ async function runReview(
   let lastMessage = ''
   let failure: string | undefined
 
+  let tracking: Promise<void> = Promise.resolve()
+  let isQueued = false
+  /** Re-reads Git after Codex acts; a refresh already waiting covers any that arrive meanwhile. */
+  function trackChanges(): Promise<void> {
+    if (base === undefined || isQueued) return tracking
+    isQueued = true
+    tracking = tracking.then(async () => {
+      isQueued = false
+      if (signal.aborted) return
+      try {
+        const files = changedSince(base, await readSnapshot($, cwd))
+        if (!signal.aborted) await update($, review, (state) => applyChanges(state, files))
+      } catch (error) {
+        $.ui.log(String(error), { to: 'debug' })
+      }
+    })
+    return tracking
+  }
+
   async function consumeLines(lines: string[]) {
     const events: CodexEvent[] = []
     for (const line of lines) {
@@ -138,6 +183,7 @@ async function runReview(
     }
     if (events.length > 0 && !signal.aborted) {
       await update($, review, (state) => events.reduce(applyEvent, state))
+      if (events.some((event) => event.type === 'item.completed')) void trackChanges()
     }
   }
 
@@ -154,6 +200,7 @@ async function runReview(
       await consumeLines(lines)
     }
     await consumeLines([buffer])
+    await trackChanges()
     const { code, signal: exitSignal } = await codex.result
     if (failure !== undefined || code !== 0) {
       throw new Error(failure ?? (stderr.trim() || `codex exec exited with ${exitSignal ?? code}`))
@@ -315,7 +362,7 @@ export const register: Register = (on, options) => {
     const frame = frameOf(state)
     const status = `${isRunning ? spinnerOf(frame, look.icon) : look.icon} ${look.label}`
     const elapsed = formatElapsed(state.now - state.startedAt)
-    const counts = `${state.commands} commands  ${state.files.length} files`
+    const counts = `${state.commands} commands  ${filesSummary(state.files)}`
     const model =
       state.model === undefined
         ? ''
@@ -415,6 +462,7 @@ export const register: Register = (on, options) => {
     const isPulseOn = Math.floor(frame / PULSE_FRAMES) % 2 === 0
     const [before, head, after] = sweepSegments(frame, columns)
     const lastIndex = state.recent.length - 1
+    const { added, deleted } = lineTotals(state.files)
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -463,6 +511,12 @@ export const register: Register = (on, options) => {
                   {state.files.length}
                 </Text>
                 <Text dimColor> files edited</Text>
+                {state.files.length > 0 && (
+                  <>
+                    <Text color="green"> +{added}</Text>
+                    <Text color="red"> −{deleted}</Text>
+                  </>
+                )}
               </Text>
             </Box>
           </Box>

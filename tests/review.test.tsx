@@ -31,10 +31,6 @@ const events = [
     type: 'item.completed',
     item: { type: 'command_execution', command: 'git diff', exit_code: 0 },
   },
-  {
-    type: 'item.completed',
-    item: { type: 'file_change', changes: [{ path: 'a.ts' }, { path: 'b.ts' }] },
-  },
   { type: 'item.completed', item: { type: 'file_change', changes: [{ path: 'a.ts' }] } },
   { type: 'item.completed', item: { type: 'agent_message', text: 'codex report' } },
   { type: 'turn.completed', usage: {} },
@@ -49,18 +45,27 @@ function stubCodexConfig(on: On) {
   on('fs.read', async () => ({ value: CODEX_CONFIG }))
 }
 
-/** Answers the `git rev-parse` the command runs first. */
-function stubGit(on: On, isRepo: boolean, hasCwd = true) {
+/** Answers the git commands: the repo check, then the diff and untracked lists the mod reads. */
+function stubGit(on: On, isRepo: boolean, hasCwd = true, diff: () => string = () => '') {
   if (hasCwd) on('session.cwd', async () => ({ value: '/work' }))
-  on('process.run', async () => ({
-    value: {
-      exitCode: isRepo ? 0 : 128,
-      stdout: isRepo ? 'true\n' : '',
-      stderr: '',
-      isStdoutTruncated: false,
-      isStderrTruncated: false,
-    },
-  }))
+  on('process.run', async (_$, e) => {
+    const stdout = !isRepo
+      ? ''
+      : e.argv[1] === 'rev-parse'
+        ? 'true\n'
+        : e.argv[1] === 'diff'
+          ? diff()
+          : ''
+    return {
+      value: {
+        exitCode: isRepo ? 0 : 128,
+        stdout,
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
 }
 
 /** Stubs the ui nouns the command touches; the promise settles when the status line clears. */
@@ -292,11 +297,6 @@ for (const { name, output, message } of [
     message: 'rate limit',
   },
   { name: 'invalid JSON value', output: 'null\n', message: 'Invalid Codex event' },
-  {
-    name: 'invalid item payload',
-    output: '{"type":"item.completed","item":{"type":"file_change","changes":[null]}}\n',
-    message: 'Invalid Codex file changes',
-  },
   { name: 'missing final report', output: '', message: 'without a final report' },
 ]) {
   test(`reports ${name} as a failure`, async ($, on) => {
@@ -461,5 +461,38 @@ test('keeps the completed report readable when delivery fails', async ($, on) =>
   expect(await ui.find({ type: 'Text', text: /Finished/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /report could not be delivered/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /saved report/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('files edited come from Git, not from what Codex reports', async ($, on) => {
+  mock.clock(on)
+  let isEdited = false
+  stubGit(on, true, true, () => (isEdited ? '3\t1\tsrc/a.ts\0' : ''))
+  stubCodexConfig(on)
+  const finished = stubUi(on)
+  on('process.spawn', async function* () {
+    // Codex reports nothing about files; Git is the only witness.
+    isEdited = true
+    const done = { type: 'item.completed', item: { type: 'command_execution' } }
+    const message = { type: 'item.completed', item: { type: 'agent_message', text: 'report' } }
+    yield { stream: 'stdout', text: `${JSON.stringify(done)}\n${JSON.stringify(message)}\n` }
+    return { value: { code: 0, signal: null } }
+  })
+  on('prompt.submit', async (_$, e) => ({ text: e.text }))
+  on('ui.render', async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine band</Text>
+  })
+
+  await $.command.run(COMMAND)
+  await finished
+
+  const ui = await $.ui.mount({
+    plugin: 'codex-reviewer',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: BAND_PROPS,
+  })
+  expect(await ui.find({ type: 'Text', text: /1 files \+3 −1/ })).toBeDefined()
   await ui.unmount()
 })

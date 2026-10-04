@@ -4,6 +4,9 @@ export type ActivityKind = 'command' | 'edit' | 'message'
 
 export type Activity = { kind: ActivityKind; text: string }
 
+/** One file the review changed, with its line counts against the starting point. */
+export type ChangedFile = { path: string; added: number; deleted: number }
+
 export type ReviewState = {
   phase: ReviewPhase
   focus: string
@@ -15,8 +18,8 @@ export type ReviewState = {
   now: number
   /** Shell commands Codex has finished. */
   commands: number
-  /** Unique paths Codex has edited. */
-  files: string[]
+  /** Files whose changes differ from when the review started, read from Git. */
+  files: ChangedFile[]
   /** The latest things Codex did, oldest first; the last one is its latest reported activity. */
   recent: Activity[]
   detail?: string
